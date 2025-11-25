@@ -1,0 +1,54 @@
+# Koa Sonos StreamDeck Configuration
+
+# Sonos speaker settings
+sonos:
+  speaker_name: "Koa's room"
+
+# StreamDeck settings
+streamdeck:
+  brightness: 80
+  http_port: 8000
+
+# Button configuration
+# Each button can be either a "loop" (for repeating audio) or "podcast"
+buttons:
+  0:
+    type: "loop"
+    name: "White Noise"
+    audio_file: "music/white_noise.mp3"
+    icon: "icons/white_noise.png"
+  
+  1:
+    type: "podcast"
+    podcast: "million-bazillion"
+  
+  2:
+    type: "podcast"
+    podcast: "short-and-curly"
+  
+  # You can add more buttons here, e.g.:
+  # 3:
+  #   type: "loop"
+  #   name: "Rain Sounds"
+  #   audio_file: "music/rain.mp3"
+  #   icon: "icons/rain.png"
+  # 4:
+  #   type: "podcast"
+  #   podcast: "another-podcast"
+
+# Podcast settings
+podcasts:
+  episodes_to_download: 15  # How many latest episodes to download per podcast
+  episodes_to_keep: 50  # Maximum episodes to keep per podcast (deletes oldest)
+  
+  feeds:
+    million-bazillion:
+      name: "Million Bazillion"
+      rss: "https://feeds.publicradio.org/public_feeds/million-bazillion"
+      icon: "icons/mb.png"
+    
+    short-and-curly:
+      name: "Short and Curly"
+      rss: "https://www.abc.net.au/feeds/7388142/podcast.xml"
+      icon: "icons/sc.png"
+

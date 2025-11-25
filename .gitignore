@@ -1,0 +1,59 @@
+# Binary files (audio, images)
+music/*.mp3
+music/*.wav
+music/*.m4a
+icons/*.png
+icons/*.jpg
+icons/*.jpeg
+
+# Downloaded podcast episodes
+podcasts/
+
+# Database files
+episode_positions.db
+*.db
+
+# Archives
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local configuration overrides (if any)
+config.local.yaml
+TESTING
+
