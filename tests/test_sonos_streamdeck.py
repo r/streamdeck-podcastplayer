@@ -59,6 +59,8 @@ class MockSpeaker:
         self.seek = Mock()
         self.next = Mock()
         self.previous = Mock()
+        self.clear_queue = Mock()
+        self.play_from_queue = Mock()
         self.get_current_transport_info = Mock(return_value={"current_transport_state": "STOPPED"})
         self.get_current_track_info = Mock(
             return_value={
@@ -472,6 +474,11 @@ def test_spotify_button_triggers_playback(mock_speaker, mock_deck):
     def mock_update_ui(deck_obj):
         update_ui_calls.append(deck_obj)
 
+    # Mock the ShareLinkPlugin - need to set it up in the mocked soco module
+    mock_share_link_instance = MagicMock()
+    mock_share_link_class = MagicMock(return_value=mock_share_link_instance)
+    sys.modules["soco.plugins.sharelink"].ShareLinkPlugin = mock_share_link_class
+
     # Test Spotify button press (button 4, key press down = state True)
     with patch("podplayer.streamdeck_handlers.time.sleep"):
         on_key_change(
@@ -493,9 +500,12 @@ def test_spotify_button_triggers_playback(mock_speaker, mock_deck):
             mock_update_ui,
         )
 
-    # Verify Spotify URI was sent to Sonos
-    mock_speaker.play_uri.assert_called_once_with("spotify:playlist:37i9dQZF1DX6z20IXmBjWI")
-    mock_speaker.play.assert_called_once()
+    # Verify queue was cleared and Spotify URI was added via ShareLinkPlugin
+    mock_speaker.clear_queue.assert_called_once()
+    mock_share_link_instance.add_share_link_to_queue.assert_called_once_with(
+        "spotify:playlist:37i9dQZF1DX6z20IXmBjWI"
+    )
+    mock_speaker.play_from_queue.assert_called_once_with(0)
     # UI should be updated
     assert len(update_ui_calls) > 0
 

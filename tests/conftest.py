@@ -36,6 +36,8 @@ sys.modules["StreamDeck.Devices.StreamDeck"] = mock_streamdeck_module
 # Mock Sonos modules
 sys.modules["soco"] = MagicMock()
 sys.modules["soco.discovery"] = MagicMock()
+sys.modules["soco.plugins"] = MagicMock()
+sys.modules["soco.plugins.sharelink"] = MagicMock()
 
 
 # ===== Test Configuration =====

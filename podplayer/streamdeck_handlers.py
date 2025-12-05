@@ -132,9 +132,16 @@ def on_key_change(
                 playback_info = get_playback_info_func(speaker)
                 save_position_func(script_dir, episode_positions, playback_info)
 
-                # Play Spotify URI on Sonos (requires Spotify linked in Sonos app)
-                speaker.play_uri(spotify_config["uri"])
-                speaker.play()
+                # Use ShareLinkPlugin to play Spotify content (handles music service URIs)
+                from soco.plugins.sharelink import ShareLinkPlugin
+
+                share_link = ShareLinkPlugin(speaker)
+                spotify_uri = spotify_config["uri"]
+
+                # Clear the queue and add the Spotify content
+                speaker.clear_queue()
+                share_link.add_share_link_to_queue(spotify_uri)
+                speaker.play_from_queue(0)
 
                 # Wait for playback to start and refresh
                 time.sleep(0.5)
