@@ -11,31 +11,34 @@ Control your Sonos speaker and play podcasts using an Elgato StreamDeck+ with di
 
 - 🎚️ **Volume Control** - Dial 0 with visual percentage and progress bar
 - ⏯️ **Playback Scrubbing** - Dial 1 to seek through tracks, push to play/pause
+- 🎵 **Episode Navigation** - Dial 2 to skip between podcast episodes or Spotify tracks
 - 💡 **Brightness Control** - Dial 3 to adjust StreamDeck brightness
-- 🎵 **White Noise Loop** - Button to play/pause white noise with repeat
+- 🔁 **Audio Loop** - Button to play/pause looping audio (white noise, rain sounds, etc.)
 - 📻 **Podcast Management** - Auto-download and play podcast episodes
-- 📺 **Rich Display** - Touchscreen shows volume, playback position, and track info
+- 🎧 **Spotify Integration** - Play Spotify playlists and albums via Sonos
+- 📺 **Rich Display** - Touchscreen shows volume, playback position, track/artist info
 
 ## StreamDeck Layout
 
 ```
-Buttons:
+Buttons (configurable):
 ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
 │  0  │  1  │  2  │  3  │  4  │  5  │  6  │  7  │
-│Loop │ Pod │ Pod │     │     │     │     │     │
+│Loop │ Pod │ Pod │ Pod │Spot │     │     │     │
 └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
 
 Dials:
 ┌──────────┬──────────┬──────────┬──────────┐
 │   0      │   1      │   2      │   3      │
-│ Volume   │ Playback │          │Brightness│
+│ Volume   │ Playback │  Track/  │Brightness│
+│          │ Scrub    │ Episode  │          │
 └──────────┴──────────┴──────────┴──────────┘
 
 Touchscreen:
 ┌─────────────┬─────────────┬──────────────────────────────┐
-│    75%      │ 1:23 / 4:56 │ How Interest Works           │
-│  ████░░░    │ ███░░░░░    │ Million Bazillion            │
-│   Volume    │     ▶       │                              │
+│    75%      │ 1:23 / 4:56 │ Anti-Hero                    │
+│  ████░░░    │ ███░░░░░    │ Taylor Swift                 │
+│   Volume    │   Playing   │ Midnights                    │
 └─────────────┴─────────────┴──────────────────────────────┘
 ```
 
@@ -77,33 +80,57 @@ See [SETUP.md](SETUP.md) for detailed instructions.
 
 | Control | Function | Description |
 |---------|----------|-------------|
-| **Button 0** | White noise loop | Toggle white noise on/off |
-| **Button 1** | Podcast 1 | Play next episode of first podcast |
-| **Button 2** | Podcast 2 | Play next episode of second podcast |
+| **Buttons** | Configurable | Loop audio, podcast, or Spotify (see config) |
 | **Dial 0 Turn** | Volume | Adjust Sonos speaker volume (0-100%) |
-| **Dial 0 Push** | Loop toggle | Same as Button 0 |
 | **Dial 1 Turn** | Scrub playback | Seek forward/backward (5 sec per turn) |
 | **Dial 1 Push** | Play/Pause | Toggle playback |
+| **Dial 2 Turn** | Track/Episode | Skip tracks (Spotify) or episodes (podcast) |
 | **Dial 3 Turn** | Brightness | Adjust StreamDeck brightness |
 
 See [docs/controls.md](docs/controls.md) for complete control reference.
 
 ## Configuration
 
-Edit `config.yaml` to customize:
+Edit `config.yaml` to customize buttons and settings:
 
 ```yaml
 sonos:
   speaker_name: "Your Speaker Name"
 
+streamdeck:
+  brightness: 80
+  http_port: 8000
+
 podcasts:
-  feeds:
-    your-podcast:
-      name: "Your Podcast"
-      rss: "https://example.com/feed.xml"
-      icon: "icons/your-podcast.png"
-      button: 1
+  episodes_to_download: 15
+  episodes_to_keep: 50
+
+# Each button can be: loop, podcast, or spotify
+buttons:
+  0:
+    type: "loop"
+    name: "White Noise"
+    audio_file: "music/white_noise.mp3"
+    icon: "icons/white_noise.png"
+  
+  1:
+    type: "podcast"
+    name: "Million Bazillion"
+    rss: "https://feeds.publicradio.org/public_feeds/million-bazillion"
+    icon: "icons/mb.png"
+  
+  4:
+    type: "spotify"
+    name: "Kids Playlist"
+    uri: "spotify:playlist:37i9dQZF1DX6z20IXmBjWI"
+    icon: "icons/spotify.png"
 ```
+
+### Spotify Setup
+
+1. Link Spotify to your Sonos in the Sonos app (Settings → Services & Voice → Spotify)
+2. Get the Spotify URI: Right-click playlist/album in Spotify → Share → Copy Spotify URI
+3. Add a `spotify` button in `config.yaml` with the URI
 
 See [docs/configuration.md](docs/configuration.md) for all options.
 
@@ -126,7 +153,7 @@ python3 -m pytest -v
 python3 -m pytest tests/test_sonos_streamdeck.py -v
 ```
 
-68 tests with full hardware mocking - no StreamDeck or Sonos required!
+59 tests with full hardware mocking - no StreamDeck or Sonos required!
 
 ## Architecture
 
@@ -145,9 +172,10 @@ python3 -m pytest tests/test_sonos_streamdeck.py -v
 
 ## Project Status
 
-✅ Fully functional and tested (68 tests passing)  
+✅ Fully functional and tested (59 tests passing)  
 ✅ Hardware fully mocked for testing  
 ✅ Configuration externalized to YAML  
+✅ Spotify integration via Sonos  
 ✅ Comprehensive documentation  
 ✅ Ready for deployment on Raspberry Pi
 
