@@ -20,6 +20,8 @@ cached_playback_info: dict[str, Any] = {
     "duration": 0,
     "state": "STOPPED",
     "title": "No track",
+    "artist": "",
+    "album": "",
     "uri": "",
 }
 last_playback_fetch: float = 0
@@ -110,6 +112,8 @@ def get_playback_info(speaker: Any, force_refresh: bool = False) -> dict[str, An
         position_str = track_info.get("position", "0:00:00")
         duration_str = track_info.get("duration", "0:00:00")
         title = track_info.get("title", "No track")
+        artist = track_info.get("artist", "")
+        album = track_info.get("album", "")
         uri = track_info.get("uri", "")
 
         # Convert HH:MM:SS to seconds
@@ -132,6 +136,8 @@ def get_playback_info(speaker: Any, force_refresh: bool = False) -> dict[str, An
             "duration": duration,
             "state": state,
             "title": title,
+            "artist": artist,
+            "album": album,
             "uri": uri,
         }
         last_playback_fetch = current_time
@@ -170,3 +176,49 @@ def detect_current_podcast(podcasts: dict[str, Any]) -> str | None:
         return None
     except Exception as e:
         return None
+
+
+def is_spotify_playing() -> bool:
+    """
+    Check if Spotify content is currently playing.
+    Returns True if the current URI indicates Spotify playback.
+    Uses cached playback info to avoid network calls.
+    """
+    global cached_playback_info
+
+    try:
+        uri = cached_playback_info.get("uri", "")
+        if not uri:
+            return False
+
+        # Spotify URIs contain 'spotify' or 'x-sonos-spotify'
+        # Examples:
+        #   x-sonos-spotify:spotify:track:xxx
+        #   x-rincon-cpcontainer:1006206cspotify:playlist:xxx
+        return "spotify" in uri.lower()
+    except Exception:
+        return False
+
+
+def skip_track(speaker: Any, direction: int) -> bool:
+    """
+    Skip to next or previous track.
+
+    Args:
+        speaker: Sonos speaker object
+        direction: positive for next track, negative for previous track
+
+    Returns:
+        True if skip was successful, False otherwise
+    """
+    try:
+        if direction > 0:
+            speaker.next()
+            log("[Sonos] Skipped to next track")
+        else:
+            speaker.previous()
+            log("[Sonos] Skipped to previous track")
+        return True
+    except Exception as e:
+        log(f"[Skip Error] {e}")
+        return False

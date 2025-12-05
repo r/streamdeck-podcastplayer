@@ -12,12 +12,14 @@ from typing import Any, Callable, Optional
 from StreamDeck.Devices.StreamDeck import DialEventType
 
 from podplayer.utils import log, get_ip
+from podplayer.sonos_control import is_spotify_playing, skip_track
 
 
 # Debounce timers for dial controls (to avoid rapid API calls)
 volume_debounce_timer: Optional[threading.Timer] = None
 scrub_debounce_timer: Optional[threading.Timer] = None
 episode_debounce_timer: Optional[threading.Timer] = None
+track_skip_debounce_timer: Optional[threading.Timer] = None
 state_refresh_timer: Optional[threading.Timer] = None
 
 # Pending values (for display updates before API calls)
@@ -64,6 +66,7 @@ def on_key_change(
     speaker: Any,
     loop_buttons: dict[int, dict[str, str]],
     podcast_buttons: dict[int, str],
+    spotify_buttons: dict[int, dict[str, str]],
     script_dir: str,
     http_port: int,
     podcast_state: dict[str, int],
@@ -80,6 +83,7 @@ def on_key_change(
     Args:
         loop_buttons: Dict mapping button number to loop config {name, audio_file, icon}
         podcast_buttons: Dict mapping button number to podcast slug
+        spotify_buttons: Dict mapping button number to Spotify config {name, uri, icon}
     """
     if not state:
         return  # ignore key release
@@ -118,6 +122,27 @@ def on_key_change(
             update_ui_func(deck_obj)
             # Schedule one more refresh to ensure final state is captured
             schedule_state_refresh(deck_obj, speaker, get_playback_info_func, update_ui_func)
+
+        elif key in spotify_buttons:
+            # Spotify button: play Spotify URI (playlist, album, track)
+            spotify_config = spotify_buttons[key]
+            log(f"[Deck] Spotify button -> {spotify_config['name']}")
+            try:
+                # Save current position before switching
+                playback_info = get_playback_info_func(speaker)
+                save_position_func(script_dir, episode_positions, playback_info)
+
+                # Play Spotify URI on Sonos (requires Spotify linked in Sonos app)
+                speaker.play_uri(spotify_config["uri"])
+                speaker.play()
+
+                # Wait for playback to start and refresh
+                time.sleep(0.5)
+                get_playback_info_func(speaker, force_refresh=True)
+                update_ui_func(deck_obj)
+                schedule_state_refresh(deck_obj, speaker, get_playback_info_func, update_ui_func)
+            except Exception as e:
+                log(f"[Spotify Error] {e} - Is Spotify linked in Sonos app?")
 
         else:
             # All other buttons: do nothing
@@ -217,6 +242,24 @@ def apply_episode_change(
         log(f"[Episode Error] {e}")
         pending_episode_index = None
         pending_episode_slug = None
+
+
+def apply_track_skip(
+    deck_obj: Any,
+    direction: int,
+    speaker: Any,
+    get_playback_info_func: Callable[..., dict[str, Any]],
+    update_ui_func: Callable[[Any], None],
+) -> None:
+    """Apply track skip for Spotify/queue playback (called after debounce)."""
+    try:
+        skip_track(speaker, direction)
+        # Wait for Sonos to update and refresh display
+        time.sleep(0.3)
+        get_playback_info_func(speaker, force_refresh=True)
+        update_ui_func(deck_obj)
+    except Exception as e:
+        log(f"[Track Skip Error] {e}")
 
 
 def on_dial_change(
@@ -352,21 +395,60 @@ def on_dial_change(
                         deck_obj, speaker, get_playback_info_func, update_ui_func
                     )
 
-        # Dial 2: Episode navigation (forward/backward)
+        # Dial 2: Track/Episode navigation (forward/backward)
+        # For Spotify/queue: skip tracks
+        # For podcasts: navigate episodes
         elif dial == 2:
             if event == DialEventType.TURN:
                 delta = int(value)
                 if delta == 0:
                     return
 
-                # Cancel existing debounce timer
+                # Check if Spotify is playing - use track skip instead of episode navigation
+                if is_spotify_playing():
+                    global track_skip_debounce_timer
+
+                    # Cancel existing debounce timer
+                    if track_skip_debounce_timer:
+                        track_skip_debounce_timer.cancel()
+
+                    # Determine skip direction (positive = next, negative = previous)
+                    direction = 1 if delta > 0 else -1
+                    log(f"[Dial 2] Spotify: {'next' if direction > 0 else 'previous'} track")
+
+                    # Schedule track skip after debounce delay (or immediately if disabled)
+                    delay = dial_debounce_seconds
+                    if delay <= 0:
+                        apply_track_skip(
+                            deck_obj,
+                            direction,
+                            speaker,
+                            get_playback_info_func,
+                            update_ui_func,
+                        )
+                    else:
+                        track_skip_debounce_timer = threading.Timer(
+                            delay,
+                            apply_track_skip,
+                            args=(
+                                deck_obj,
+                                direction,
+                                speaker,
+                                get_playback_info_func,
+                                update_ui_func,
+                            ),
+                        )
+                        track_skip_debounce_timer.start()
+                    return
+
+                # Cancel existing debounce timer for episode navigation
                 if episode_debounce_timer:
                     episode_debounce_timer.cancel()
 
                 # Detect current podcast
                 current_slug = detect_podcast_func(podcasts)
                 if not current_slug:
-                    log("[Dial 2] No podcast currently playing")
+                    log("[Dial 2] No podcast or Spotify currently playing")
                     return
 
                 # Get current episode index

@@ -31,10 +31,23 @@ def ensure_dir(path: str) -> None:
     pathlib.Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def save_episode_metadata(file_path: str, title: str, description: str = "") -> None:
+def save_episode_metadata(
+    file_path: str,
+    title: str,
+    description: str = "",
+    publication_date: str = "",
+    publication_datetime: str = "",
+) -> None:
     """
     Save episode metadata to the database.
     Uses file path pattern instead of full URI to handle IP/port changes.
+
+    Args:
+        file_path: Full path to the episode file
+        title: Episode title
+        description: Episode description
+        publication_date: Publication date in YYYY-MM-DD format
+        publication_datetime: Full publication datetime in ISO 8601 format (YYYY-MM-DDTHH:MM:SS)
     """
     db_path = os.path.join(SCRIPT_DIR, "episode_positions.db")
     try:
@@ -47,18 +60,30 @@ def save_episode_metadata(file_path: str, title: str, description: str = "") -> 
                 file_path TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 description TEXT,
+                publication_date TEXT,
+                publication_datetime TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
+        # Add publication columns if they don't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE episode_metadata ADD COLUMN publication_date TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE episode_metadata ADD COLUMN publication_datetime TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Use relative path from SCRIPT_DIR for matching
         rel_path = os.path.relpath(file_path, SCRIPT_DIR)
         cursor.execute(
             """
-            INSERT OR REPLACE INTO episode_metadata (file_path, title, description, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT OR REPLACE INTO episode_metadata (file_path, title, description, publication_date, publication_datetime, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """,
-            (rel_path, title, description),
+            (rel_path, title, description, publication_date, publication_datetime),
         )
         conn.commit()
         conn.close()
@@ -94,9 +119,16 @@ def download_episode(slug: str, entry: Any) -> None:
 
     date_struct = entry.get("published_parsed") or entry.get("updated_parsed")
     if date_struct:
+        # Extract date for filename (YYYY-MM-DD)
         date_prefix = time.strftime("%Y-%m-%d", date_struct)
+        publication_date = date_prefix
+        # Extract full datetime for proper ordering (ISO 8601 format)
+        publication_datetime = time.strftime("%Y-%m-%dT%H:%M:%S", date_struct)
     else:
+        # Fallback to current time
         date_prefix = time.strftime("%Y-%m-%d")
+        publication_date = date_prefix
+        publication_datetime = time.strftime("%Y-%m-%dT%H:%M:%S")
 
     feed_dir = os.path.join(SCRIPT_DIR, "podcasts", slug)
     ensure_dir(feed_dir)
@@ -105,8 +137,8 @@ def download_episode(slug: str, entry: Any) -> None:
     dest = os.path.join(feed_dir, fname)
 
     # Always update metadata from RSS feed, even if file already exists
-    # This ensures we have the latest title and description
-    save_episode_metadata(dest, title, description)
+    # This ensures we have the latest title, description, publication date, and datetime
+    save_episode_metadata(dest, title, description, publication_date, publication_datetime)
 
     if os.path.exists(dest):
         print(f"[{slug}] Already have {fname}, metadata updated from RSS feed")

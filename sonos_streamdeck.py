@@ -50,6 +50,9 @@ LOOP_BUTTONS = (
     config.loop_buttons
 )  # Dict[int, Dict[str, str]] - button num -> {name, audio_file, icon}
 PODCAST_BUTTONS = config.podcast_buttons  # Dict[int, str] - button num -> podcast slug
+SPOTIFY_BUTTONS = (
+    config.spotify_buttons
+)  # Dict[int, Dict[str, str]] - button num -> {name, uri, icon}
 PODCASTS = config.podcast_feeds  # Dict[str, Dict] - podcast slug -> {name, rss, icon}
 # ====== END CONFIG ======
 
@@ -125,6 +128,7 @@ def open_stream_deck() -> Any:
             speaker,
             LOOP_BUTTONS,
             PODCAST_BUTTONS,
+            SPOTIFY_BUTTONS,
             SCRIPT_DIR,
             HTTP_PORT,
             PODCAST_STATE,
@@ -175,6 +179,11 @@ def open_stream_deck() -> Any:
         podcast_info = PODCASTS.get(slug)
         if podcast_info and "icon" in podcast_info:
             set_key_image(d, button_num, podcast_info["icon"])
+
+    # Spotify buttons
+    for button_num, spotify_config in SPOTIFY_BUTTONS.items():
+        if "icon" in spotify_config:
+            set_key_image(d, button_num, spotify_config["icon"])
 
     log(f"[Deck] connected with {d.key_count()} keys")
     return d
@@ -259,6 +268,9 @@ def main() -> None:
     for button_num, slug in PODCAST_BUTTONS.items():
         podcast_name = PODCASTS.get(slug, {}).get("name", slug)
         print(f"  Button {button_num} = {podcast_name}")
+
+    for button_num, spotify_config in SPOTIFY_BUTTONS.items():
+        print(f"  Button {button_num} = {spotify_config['name']} (spotify)")
 
     print(
         "  Dial 0 = volume, Dial 1 = playback scrub/pause, Dial 2 = episode navigation, Dial 3 = brightness"

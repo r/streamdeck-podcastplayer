@@ -57,6 +57,8 @@ class MockSpeaker:
         self.play = Mock()
         self.pause = Mock()
         self.seek = Mock()
+        self.next = Mock()
+        self.previous = Mock()
         self.get_current_transport_info = Mock(return_value={"current_transport_state": "STOPPED"})
         self.get_current_track_info = Mock(
             return_value={
@@ -64,6 +66,8 @@ class MockSpeaker:
                 "position": "0:00:00",
                 "duration": "0:00:00",
                 "title": "No track",
+                "artist": "",
+                "album": "",
             }
         )
 
@@ -102,6 +106,32 @@ def temp_podcast_dir(tmp_path):
         fpath.write_text(f"fake mp3 content {i}")
         # Set different modification times
         os.utime(fpath, (1000 + i, 1000 + i))
+
+    # Initialize database and add publication dates for proper ordering
+    from podplayer.persistence import init_database
+    import sqlite3
+
+    # script_dir is the parent of the podcasts directory (i.e., tmp_path)
+    script_dir = str(podcast_dir.parent.parent)
+    init_database(script_dir)
+
+    # Add publication dates to database for proper ordering
+    db_path = os.path.join(script_dir, "episode_positions.db")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    for i, fname in enumerate(files):
+        rel_path = f"podcasts/test-podcast/{fname}"
+        pub_date = fname[:10]  # Extract YYYY-MM-DD from filename
+        # Create distinct datetimes for same-day episodes (use hours to differentiate)
+        pub_datetime = f"{pub_date}T{10 + i:02d}:00:00"  # 10:00, 11:00, 12:00
+        cursor.execute(
+            "INSERT OR REPLACE INTO episode_metadata (file_path, title, description, publication_date, publication_datetime) VALUES (?, ?, ?, ?, ?)",
+            (rel_path, fname, "", pub_date, pub_datetime),
+        )
+
+    conn.commit()
+    conn.close()
 
     return podcast_dir.parent
 
@@ -201,14 +231,24 @@ def test_toggle_loop_pauses_when_playing_same_track(mock_speaker):
 
 
 def test_list_podcast_files_returns_newest_first(temp_podcast_dir):
-    """Test list_podcast_files returns files sorted by modification time."""
-    files = list_podcast_files(str(temp_podcast_dir.parent), "test-podcast")
+    """Test list_podcast_files returns files sorted by publication date (newest first)."""
+    import sqlite3
+
+    # temp_podcast_dir is the "podcasts" directory, script_dir is its parent
+    script_dir = str(temp_podcast_dir.parent)
+    files = list_podcast_files(script_dir, "test-podcast")
 
     assert len(files) == 3
-    # Should be sorted newest first
-    assert "episode-3.mp3" in files[0]
-    assert "episode-2.mp3" in files[1]
-    assert "episode-1.mp3" in files[2]
+    # Should be sorted by publication date (newest first: 2024-01-03 > 2024-01-02 > 2024-01-01)
+    assert (
+        "episode-3.mp3" in files[0]
+    ), f"Expected episode-3 first, got {os.path.basename(files[0])}"
+    assert (
+        "episode-2.mp3" in files[1]
+    ), f"Expected episode-2 second, got {os.path.basename(files[1])}"
+    assert (
+        "episode-1.mp3" in files[2]
+    ), f"Expected episode-1 third, got {os.path.basename(files[2])}"
 
 
 def test_list_podcast_files_returns_empty_for_missing_dir():
@@ -388,6 +428,413 @@ def test_dial_2_episode_navigation_integration(mock_speaker, temp_podcast_dir):
     # Since we disabled debounce (0 seconds), it should call play immediately
     assert mock_speaker.play_uri.called
     assert update_ui_called[0]  # UI should update
+
+
+def test_spotify_button_triggers_playback(mock_speaker, mock_deck):
+    """Test Spotify button press triggers Sonos playback with Spotify URI."""
+    from podplayer.streamdeck_handlers import on_key_change
+    from podplayer.sonos_control import toggle_loop, get_playback_info
+    from podplayer.podcast_manager import play_podcast_next
+    from podplayer.persistence import save_current_position
+    from podplayer import sonos_control
+
+    # Set up environment
+    script_dir = "/test/dir"
+    http_port = 8000
+    podcast_state = {}
+    episode_positions = {}
+
+    # Configure buttons
+    loop_buttons = {}  # No loop buttons
+    podcast_buttons = {}  # No podcast buttons
+    spotify_buttons = {
+        4: {
+            "name": "Kids Playlist",
+            "uri": "spotify:playlist:37i9dQZF1DX6z20IXmBjWI",
+            "icon": "/test/icons/spotify.png",
+        }
+    }
+
+    # Mock cached playback info
+    sonos_control.cached_playback_info = {
+        "position": 0,
+        "duration": 0,
+        "state": "STOPPED",
+        "title": "",
+        "artist": "",
+        "album": "",
+        "uri": "",
+    }
+
+    # Create mock update UI function
+    update_ui_calls = []
+
+    def mock_update_ui(deck_obj):
+        update_ui_calls.append(deck_obj)
+
+    # Test Spotify button press (button 4, key press down = state True)
+    with patch("podplayer.streamdeck_handlers.time.sleep"):
+        on_key_change(
+            mock_deck,
+            4,  # Spotify button
+            True,  # Key pressed
+            mock_speaker,
+            loop_buttons,
+            podcast_buttons,
+            spotify_buttons,
+            script_dir,
+            http_port,
+            podcast_state,
+            episode_positions,
+            toggle_loop,
+            play_podcast_next,
+            save_current_position,
+            get_playback_info,
+            mock_update_ui,
+        )
+
+    # Verify Spotify URI was sent to Sonos
+    mock_speaker.play_uri.assert_called_once_with("spotify:playlist:37i9dQZF1DX6z20IXmBjWI")
+    mock_speaker.play.assert_called_once()
+    # UI should be updated
+    assert len(update_ui_calls) > 0
+
+
+def test_spotify_button_does_not_affect_other_buttons(mock_speaker, mock_deck):
+    """Test that Spotify button configuration doesn't interfere with other button types."""
+    from podplayer.streamdeck_handlers import on_key_change
+    from podplayer.sonos_control import toggle_loop, get_playback_info
+    from podplayer.podcast_manager import play_podcast_next
+    from podplayer.persistence import save_current_position
+    from podplayer import sonos_control
+
+    # Set up environment
+    script_dir = "/test/dir"
+    http_port = 8000
+    podcast_state = {}
+    episode_positions = {}
+
+    # Configure mixed buttons
+    loop_buttons = {
+        0: {
+            "name": "White Noise",
+            "audio_file": "/test/dir/music/white_noise.mp3",
+            "icon": "/test/icons/wn.png",
+        }
+    }
+    podcast_buttons = {1: "test-podcast"}
+    spotify_buttons = {
+        4: {
+            "name": "Kids Playlist",
+            "uri": "spotify:playlist:123",
+            "icon": "/test/icons/spotify.png",
+        }
+    }
+
+    # Mock cached playback info
+    sonos_control.cached_playback_info = {
+        "position": 0,
+        "duration": 0,
+        "state": "STOPPED",
+        "title": "",
+        "artist": "",
+        "album": "",
+        "uri": "",
+    }
+
+    # Create mock update UI function
+    def mock_update_ui(deck_obj):
+        pass
+
+    # Test loop button press (button 0)
+    with patch("podplayer.sonos_control.get_ip", return_value="192.168.1.50"):
+        on_key_change(
+            mock_deck,
+            0,  # Loop button
+            True,  # Key pressed
+            mock_speaker,
+            loop_buttons,
+            podcast_buttons,
+            spotify_buttons,
+            script_dir,
+            http_port,
+            podcast_state,
+            episode_positions,
+            toggle_loop,
+            play_podcast_next,
+            save_current_position,
+            get_playback_info,
+            mock_update_ui,
+        )
+
+    # Verify loop audio was played (not Spotify)
+    call_args = mock_speaker.play_uri.call_args[0][0]
+    assert "white_noise.mp3" in call_args
+    assert "spotify:" not in call_args
+
+
+def test_unmapped_button_does_nothing(mock_speaker, mock_deck):
+    """Test that pressing an unmapped button does nothing."""
+    from podplayer.streamdeck_handlers import on_key_change
+    from podplayer.sonos_control import toggle_loop, get_playback_info
+    from podplayer.podcast_manager import play_podcast_next
+    from podplayer.persistence import save_current_position
+
+    # Set up environment with no button 7 mapped
+    loop_buttons = {}
+    podcast_buttons = {}
+    spotify_buttons = {}
+
+    # Create mock update UI function
+    def mock_update_ui(deck_obj):
+        pass
+
+    # Test unmapped button press (button 7)
+    on_key_change(
+        mock_deck,
+        7,  # Unmapped button
+        True,
+        mock_speaker,
+        loop_buttons,
+        podcast_buttons,
+        spotify_buttons,
+        "/test/dir",
+        8000,
+        {},
+        {},
+        toggle_loop,
+        play_podcast_next,
+        save_current_position,
+        get_playback_info,
+        mock_update_ui,
+    )
+
+    # Verify nothing was played
+    mock_speaker.play_uri.assert_not_called()
+    mock_speaker.play.assert_not_called()
+
+
+def test_is_spotify_playing_with_spotify_uri():
+    """Test is_spotify_playing returns True for Spotify URIs."""
+    from podplayer import sonos_control
+    from podplayer.sonos_control import is_spotify_playing
+
+    # Test with typical Spotify URI
+    sonos_control.cached_playback_info = {
+        "position": 100,
+        "duration": 300,
+        "state": "PLAYING",
+        "title": "Test Song",
+        "artist": "Test Artist",
+        "album": "Test Album",
+        "uri": "x-sonos-spotify:spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+    }
+    assert is_spotify_playing() is True
+
+    # Test with container-style Spotify URI
+    sonos_control.cached_playback_info["uri"] = (
+        "x-rincon-cpcontainer:1006206cspotify:playlist:37i9dQZF1DX6z20IXmBjWI"
+    )
+    assert is_spotify_playing() is True
+
+
+def test_is_spotify_playing_with_non_spotify_uri():
+    """Test is_spotify_playing returns False for non-Spotify URIs."""
+    from podplayer import sonos_control
+    from podplayer.sonos_control import is_spotify_playing
+
+    # Test with podcast URI
+    sonos_control.cached_playback_info = {
+        "position": 100,
+        "duration": 300,
+        "state": "PLAYING",
+        "title": "Episode 1",
+        "artist": "",
+        "album": "",
+        "uri": "http://10.0.53.202:8000/podcasts/test-podcast/episode.mp3",
+    }
+    assert is_spotify_playing() is False
+
+    # Test with local music URI
+    sonos_control.cached_playback_info["uri"] = "http://10.0.53.202:8000/music/white_noise.mp3"
+    assert is_spotify_playing() is False
+
+    # Test with empty URI
+    sonos_control.cached_playback_info["uri"] = ""
+    assert is_spotify_playing() is False
+
+
+def test_skip_track_next(mock_speaker):
+    """Test skip_track calls speaker.next() for positive direction."""
+    from podplayer.sonos_control import skip_track
+
+    result = skip_track(mock_speaker, 1)
+
+    mock_speaker.next.assert_called_once()
+    mock_speaker.previous.assert_not_called()
+    assert result is True
+
+
+def test_skip_track_previous(mock_speaker):
+    """Test skip_track calls speaker.previous() for negative direction."""
+    from podplayer.sonos_control import skip_track
+
+    result = skip_track(mock_speaker, -1)
+
+    mock_speaker.previous.assert_called_once()
+    mock_speaker.next.assert_not_called()
+    assert result is True
+
+
+def test_dial_2_spotify_track_skip(mock_speaker, mock_deck):
+    """Test dial 2 skips tracks when Spotify is playing."""
+    from podplayer import sonos_control
+    from podplayer.streamdeck_handlers import on_dial_change
+    from podplayer.podcast_manager import list_podcast_files, play_podcast_episode
+    from podplayer.persistence import save_current_position
+    from podplayer.sonos_control import get_playback_info, detect_current_podcast
+    from StreamDeck.Devices.StreamDeck import DialEventType
+
+    # Set up environment
+    script_dir = "/test/dir"
+    http_port = 8000
+    current_brightness_ref = [50]
+    podcast_state = {}
+    episode_positions = {}
+    podcasts = {}
+
+    # Mock Spotify playback
+    sonos_control.cached_playback_info = {
+        "position": 100,
+        "duration": 300,
+        "state": "PLAYING",
+        "title": "Test Song",
+        "artist": "Test Artist",
+        "album": "Test Album",
+        "uri": "x-sonos-spotify:spotify:track:123456",
+    }
+
+    mock_deck.touchscreen_image_format.return_value = {"size": (800, 100)}
+
+    update_ui_called = [False]
+
+    def mock_update_ui(deck_obj):
+        update_ui_called[0] = True
+
+    # Test dial 2 turn (should skip track for Spotify)
+    with patch("podplayer.streamdeck_handlers.time.sleep"):
+        on_dial_change(
+            mock_deck,
+            2,  # Dial 2 (track/episode navigation)
+            DialEventType.TURN,
+            1,  # Turn forward (next track)
+            mock_speaker,
+            script_dir,
+            http_port,
+            current_brightness_ref,
+            podcast_state,
+            episode_positions,
+            podcasts,
+            0,  # No debounce for test
+            False,
+            get_playback_info,
+            save_current_position,
+            detect_current_podcast,
+            list_podcast_files,
+            play_podcast_episode,
+            mock_update_ui,
+        )
+
+    # Should call next() for Spotify
+    mock_speaker.next.assert_called_once()
+    assert update_ui_called[0]
+
+
+def test_dial_2_spotify_track_skip_previous(mock_speaker, mock_deck):
+    """Test dial 2 skips to previous track when turning backwards on Spotify."""
+    from podplayer import sonos_control
+    from podplayer.streamdeck_handlers import on_dial_change
+    from podplayer.podcast_manager import list_podcast_files, play_podcast_episode
+    from podplayer.persistence import save_current_position
+    from podplayer.sonos_control import get_playback_info, detect_current_podcast
+    from StreamDeck.Devices.StreamDeck import DialEventType
+
+    # Set up environment
+    script_dir = "/test/dir"
+    http_port = 8000
+    current_brightness_ref = [50]
+    podcast_state = {}
+    episode_positions = {}
+    podcasts = {}
+
+    # Mock Spotify playback
+    sonos_control.cached_playback_info = {
+        "position": 100,
+        "duration": 300,
+        "state": "PLAYING",
+        "title": "Test Song",
+        "artist": "Test Artist",
+        "album": "Test Album",
+        "uri": "x-sonos-spotify:spotify:track:123456",
+    }
+
+    mock_deck.touchscreen_image_format.return_value = {"size": (800, 100)}
+
+    def mock_update_ui(deck_obj):
+        pass
+
+    # Test dial 2 turn backwards (should skip to previous track for Spotify)
+    with patch("podplayer.streamdeck_handlers.time.sleep"):
+        on_dial_change(
+            mock_deck,
+            2,
+            DialEventType.TURN,
+            -1,  # Turn backward (previous track)
+            mock_speaker,
+            script_dir,
+            http_port,
+            current_brightness_ref,
+            podcast_state,
+            episode_positions,
+            podcasts,
+            0,
+            False,
+            get_playback_info,
+            save_current_position,
+            detect_current_podcast,
+            list_podcast_files,
+            play_podcast_episode,
+            mock_update_ui,
+        )
+
+    # Should call previous() for Spotify
+    mock_speaker.previous.assert_called_once()
+
+
+def test_playback_info_includes_artist_album():
+    """Test that get_playback_info returns artist and album info."""
+    from podplayer.sonos_control import get_playback_info
+    from unittest.mock import Mock
+
+    mock_speaker = Mock()
+    mock_speaker.get_current_track_info.return_value = {
+        "position": "0:02:30",
+        "duration": "0:04:00",
+        "title": "Test Song",
+        "artist": "Test Artist",
+        "album": "Test Album",
+        "uri": "x-sonos-spotify:spotify:track:123",
+    }
+    mock_speaker.get_current_transport_info.return_value = {"current_transport_state": "PLAYING"}
+
+    # Force refresh to get fresh data
+    info = get_playback_info(mock_speaker, force_refresh=True)
+
+    assert info["title"] == "Test Song"
+    assert info["artist"] == "Test Artist"
+    assert info["album"] == "Test Album"
+    assert info["position"] == 150  # 2:30 in seconds
+    assert info["duration"] == 240  # 4:00 in seconds
 
 
 def test_refactoring_note():

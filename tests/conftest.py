@@ -59,33 +59,34 @@ streamdeck:
   brightness: 80
   http_port: 8000
 
-white_noise:
-  audio_file: "music/white_noise.mp3"
-  icon: "icons/white_noise.png"
-  button: 0
-
 podcasts:
   episodes_to_download: 5
   episodes_to_keep: 20
-  
-  feeds:
-    test-podcast:
-      name: "Test Podcast"
-      rss: "https://example.com/feed.xml"
-      icon: "icons/test.png"
-      button: 1
-    
-    million-bazillion:
-      name: "Million Bazillion"
-      rss: "https://feeds.publicradio.org/public_feeds/million-bazillion"
-      icon: "icons/mb.png"
-      button: 1
-    
-    short-and-curly:
-      name: "Short and Curly"
-      rss: "https://www.abc.net.au/feeds/7388142/podcast.xml"
-      icon: "icons/sc.png"
-      button: 2
+
+buttons:
+  0:
+    type: "loop"
+    name: "White Noise"
+    audio_file: "music/white_noise.mp3"
+    icon: "icons/white_noise.png"
+  1:
+    type: "podcast"
+    name: "Test Podcast"
+    slug: "test-podcast"
+    rss: "https://example.com/feed.xml"
+    icon: "icons/test.png"
+  2:
+    type: "podcast"
+    name: "Million Bazillion"
+    slug: "million-bazillion"
+    rss: "https://feeds.publicradio.org/public_feeds/million-bazillion"
+    icon: "icons/mb.png"
+  3:
+    type: "podcast"
+    name: "Short and Curly"
+    slug: "short-and-curly"
+    rss: "https://www.abc.net.au/feeds/7388142/podcast.xml"
+    icon: "icons/sc.png"
 """
     config_file.write_text(config_content)
     return str(config_file)

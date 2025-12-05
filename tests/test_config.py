@@ -36,6 +36,10 @@ streamdeck:
   brightness: 75
   http_port: 9000
 
+podcasts:
+  episodes_to_download: 3
+  episodes_to_keep: 10
+
 buttons:
   0:
     type: "loop"
@@ -44,16 +48,9 @@ buttons:
     icon: "images/test.png"
   1:
     type: "podcast"
-    podcast: "test-show"
-
-podcasts:
-  episodes_to_download: 3
-  episodes_to_keep: 10
-  feeds:
-    test-show:
-      name: "Test Show"
-      rss: "https://example.com/feed.xml"
-      icon: "images/show.png"
+    name: "Test Show"
+    rss: "https://example.com/feed.xml"
+    icon: "images/show.png"
 """
     )
 
@@ -78,7 +75,6 @@ buttons: {}
 podcasts:
   episodes_to_download: 5
   episodes_to_keep: 20
-  feeds: {}
 """
     )
 
@@ -106,7 +102,6 @@ buttons:
 podcasts:
   episodes_to_download: 5
   episodes_to_keep: 20
-  feeds: {}
 """
     )
 
@@ -123,7 +118,7 @@ podcasts:
 
 
 def test_config_podcast_feeds(tmp_path):
-    """Test podcast feed configuration."""
+    """Test podcast feed configuration from buttons."""
     config_file = tmp_path / "test_config.yaml"
     config_file.write_text(
         """
@@ -135,21 +130,17 @@ streamdeck:
 buttons:
   1:
     type: "podcast"
-    podcast: "show-one"
+    name: "Show One"
+    rss: "https://example.com/show1.xml"
+    icon: "icons/show1.png"
   2:
     type: "podcast"
-    podcast: "show-two"
+    name: "Show Two"
+    rss: "https://example.com/show2.xml"
+    icon: "icons/show2.png"
 podcasts:
-  episodes_per_feed: 5
-  feeds:
-    show-one:
-      name: "Show One"
-      rss: "https://example.com/show1.xml"
-      icon: "icons/show1.png"
-    show-two:
-      name: "Show Two"
-      rss: "https://example.com/show2.xml"
-      icon: "icons/show2.png"
+  episodes_to_download: 5
+  episodes_to_keep: 20
 """
     )
 
@@ -157,14 +148,13 @@ podcasts:
 
     feeds = config.podcast_feeds
     assert len(feeds) == 2
+    # Slugs are auto-generated from names
     assert "show-one" in feeds
     assert "show-two" in feeds
 
     assert feeds["show-one"]["name"] == "Show One"
     assert feeds["show-one"]["rss"] == "https://example.com/show1.xml"
     assert feeds["show-one"]["icon"].endswith("icons/show1.png")
-    # button is now in buttons section, not in feed info
-    assert "button" not in feeds["show-one"]
 
 
 def test_config_podcast_button_mapping(tmp_path):
@@ -185,37 +175,60 @@ buttons:
     icon: "icons/test.png"
   1:
     type: "podcast"
-    podcast: "show-one"
+    name: "Show One"
+    rss: "https://example.com/show1.xml"
+    icon: "icons/show1.png"
   3:
     type: "podcast"
-    podcast: "show-two"
+    name: "Show Two"
+    rss: "https://example.com/show2.xml"
+    icon: "icons/show2.png"
 podcasts:
-  episodes_per_feed: 5
-  feeds:
-    show-one:
-      name: "Show One"
-      rss: "https://example.com/show1.xml"
-      icon: "icons/show1.png"
-    show-two:
-      name: "Show Two"
-      rss: "https://example.com/show2.xml"
-      icon: "icons/show2.png"
-    show-three:
-      name: "Show Three"
-      rss: "https://example.com/show3.xml"
-      icon: "icons/show3.png"
+  episodes_to_download: 5
+  episodes_to_keep: 20
 """
     )
 
     config = Config(str(config_file))
 
     button_mapping = config.podcast_buttons
+    # Slugs are auto-generated from names
     assert button_mapping[1] == "show-one"
     assert button_mapping[3] == "show-two"
-    # show-three has no button, so it shouldn't be in mapping
+    # Button 2 not mapped
     assert 2 not in button_mapping
     # Button 0 is a loop button, not a podcast button
     assert 0 not in button_mapping
+
+
+def test_config_podcast_explicit_slug(tmp_path):
+    """Test podcast button with explicit slug."""
+    config_file = tmp_path / "test_config.yaml"
+    config_file.write_text(
+        """
+sonos:
+  speaker_name: "Test"
+streamdeck:
+  brightness: 80
+  http_port: 8000
+buttons:
+  1:
+    type: "podcast"
+    name: "My Fancy Podcast Name!"
+    slug: "my-podcast"
+    rss: "https://example.com/feed.xml"
+    icon: "icons/podcast.png"
+podcasts:
+  episodes_to_download: 5
+  episodes_to_keep: 20
+"""
+    )
+
+    config = Config(str(config_file))
+
+    # Should use explicit slug instead of auto-generating from name
+    assert config.podcast_buttons[1] == "my-podcast"
+    assert "my-podcast" in config.podcast_feeds
 
 
 def test_config_get_podcast_info(tmp_path):
@@ -231,14 +244,12 @@ streamdeck:
 buttons:
   1:
     type: "podcast"
-    podcast: "my-show"
+    name: "My Show"
+    rss: "https://example.com/myshow.xml"
+    icon: "icons/myshow.png"
 podcasts:
-  episodes_per_feed: 5
-  feeds:
-    my-show:
-      name: "My Show"
-      rss: "https://example.com/myshow.xml"
-      icon: "icons/myshow.png"
+  episodes_to_download: 5
+  episodes_to_keep: 20
 """
     )
 
@@ -247,8 +258,6 @@ podcasts:
     info = config.get_podcast_info("my-show")
     assert info["name"] == "My Show"
     assert info["rss"] == "https://example.com/myshow.xml"
-    # button is now in buttons section, not in feed info
-    assert "button" not in info
 
     # Non-existent podcast returns empty dict
     assert config.get_podcast_info("non-existent") == {}
@@ -268,7 +277,6 @@ buttons: {}
 podcasts:
   episodes_to_download: 10
   episodes_to_keep: 30
-  feeds: {}
 """
     )
 
@@ -278,6 +286,28 @@ podcasts:
     assert config.episodes_to_keep == 30
     # Legacy property should return episodes_to_keep
     assert config.episodes_per_feed == 30
+
+
+def test_config_episodes_defaults(tmp_path):
+    """Test episodes settings have sensible defaults."""
+    config_file = tmp_path / "test_config.yaml"
+    config_file.write_text(
+        """
+sonos:
+  speaker_name: "Test"
+streamdeck:
+  brightness: 80
+  http_port: 8000
+buttons: {}
+podcasts: {}
+"""
+    )
+
+    config = Config(str(config_file))
+
+    # Should have sensible defaults
+    assert config.episodes_to_download == 15
+    assert config.episodes_to_keep == 50
 
 
 def test_config_script_dir_property(tmp_path):
@@ -294,7 +324,6 @@ buttons: {}
 podcasts:
   episodes_to_download: 5
   episodes_to_keep: 20
-  feeds: {}
 """
     )
 
@@ -311,3 +340,171 @@ def test_get_config_singleton():
     config2 = get_config()
 
     assert config1 is config2
+
+
+def test_config_spotify_buttons(tmp_path):
+    """Test Spotify button configuration."""
+    config_file = tmp_path / "test_config.yaml"
+    config_file.write_text(
+        """
+sonos:
+  speaker_name: "Test"
+streamdeck:
+  brightness: 80
+  http_port: 8000
+buttons:
+  0:
+    type: "loop"
+    name: "White Noise"
+    audio_file: "music/white_noise.mp3"
+    icon: "icons/white_noise.png"
+  1:
+    type: "podcast"
+    name: "Test Show"
+    rss: "https://example.com/feed.xml"
+    icon: "images/show.png"
+  4:
+    type: "spotify"
+    name: "Kids Playlist"
+    uri: "spotify:playlist:37i9dQZF1DX6z20IXmBjWI"
+    icon: "icons/spotify.png"
+  5:
+    type: "spotify"
+    name: "Calm Music"
+    uri: "spotify:playlist:37i9dQZF1DWXe9gFZP0gtP"
+    icon: "icons/calm.png"
+podcasts:
+  episodes_to_download: 5
+  episodes_to_keep: 20
+"""
+    )
+
+    config = Config(str(config_file))
+
+    # Check spotify buttons configuration
+    spotify_buttons = config.spotify_buttons
+    assert len(spotify_buttons) == 2
+    assert 4 in spotify_buttons
+    assert 5 in spotify_buttons
+
+    # Check button 4 configuration
+    assert spotify_buttons[4]["name"] == "Kids Playlist"
+    assert spotify_buttons[4]["uri"] == "spotify:playlist:37i9dQZF1DX6z20IXmBjWI"
+    assert spotify_buttons[4]["icon"].endswith("icons/spotify.png")
+    assert os.path.isabs(spotify_buttons[4]["icon"])
+
+    # Check button 5 configuration
+    assert spotify_buttons[5]["name"] == "Calm Music"
+    assert spotify_buttons[5]["uri"] == "spotify:playlist:37i9dQZF1DWXe9gFZP0gtP"
+    assert spotify_buttons[5]["icon"].endswith("icons/calm.png")
+
+    # Verify spotify buttons are NOT in loop_buttons or podcast_buttons
+    assert 4 not in config.loop_buttons
+    assert 5 not in config.loop_buttons
+    assert 4 not in config.podcast_buttons
+    assert 5 not in config.podcast_buttons
+
+
+def test_config_button_config_includes_spotify(tmp_path):
+    """Test that button_config includes Spotify type buttons."""
+    config_file = tmp_path / "test_config.yaml"
+    config_file.write_text(
+        """
+sonos:
+  speaker_name: "Test"
+streamdeck:
+  brightness: 80
+  http_port: 8000
+buttons:
+  2:
+    type: "spotify"
+    name: "Party Mix"
+    uri: "spotify:album:1234567890"
+    icon: "icons/party.png"
+podcasts:
+  episodes_to_download: 5
+  episodes_to_keep: 20
+"""
+    )
+
+    config = Config(str(config_file))
+
+    # Check full button_config includes spotify type
+    button_config = config.button_config
+    assert 2 in button_config
+    assert button_config[2]["type"] == "spotify"
+    assert button_config[2]["name"] == "Party Mix"
+    assert button_config[2]["uri"] == "spotify:album:1234567890"
+    assert button_config[2]["icon"].endswith("icons/party.png")
+
+
+def test_config_mixed_button_types(tmp_path):
+    """Test configuration with all button types: loop, podcast, and spotify."""
+    config_file = tmp_path / "test_config.yaml"
+    config_file.write_text(
+        """
+sonos:
+  speaker_name: "Test"
+streamdeck:
+  brightness: 80
+  http_port: 8000
+buttons:
+  0:
+    type: "loop"
+    name: "Rain Sounds"
+    audio_file: "music/rain.mp3"
+    icon: "icons/rain.png"
+  1:
+    type: "podcast"
+    name: "News"
+    rss: "https://example.com/news.xml"
+    icon: "icons/news.png"
+  2:
+    type: "spotify"
+    name: "Focus Music"
+    uri: "spotify:playlist:focus123"
+    icon: "icons/focus.png"
+  3:
+    type: "podcast"
+    name: "Comedy"
+    rss: "https://example.com/comedy.xml"
+    icon: "icons/comedy.png"
+  4:
+    type: "spotify"
+    name: "Workout"
+    uri: "spotify:playlist:workout456"
+    icon: "icons/workout.png"
+podcasts:
+  episodes_to_download: 5
+  episodes_to_keep: 20
+"""
+    )
+
+    config = Config(str(config_file))
+
+    # Verify each button type is correctly categorized
+    loop_buttons = config.loop_buttons
+    podcast_buttons = config.podcast_buttons
+    spotify_buttons = config.spotify_buttons
+
+    assert len(loop_buttons) == 1
+    assert len(podcast_buttons) == 2
+    assert len(spotify_buttons) == 2
+
+    assert 0 in loop_buttons
+    assert 1 in podcast_buttons
+    assert 3 in podcast_buttons
+    assert 2 in spotify_buttons
+    assert 4 in spotify_buttons
+
+    # Verify no overlap between button types
+    all_buttons = (
+        set(loop_buttons.keys()) | set(podcast_buttons.keys()) | set(spotify_buttons.keys())
+    )
+    assert len(all_buttons) == 5  # All unique
+
+    # Verify podcast feeds are derived correctly
+    feeds = config.podcast_feeds
+    assert len(feeds) == 2
+    assert "news" in feeds
+    assert "comedy" in feeds

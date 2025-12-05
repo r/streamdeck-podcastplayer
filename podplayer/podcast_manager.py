@@ -6,19 +6,77 @@ from __future__ import annotations
 
 import os
 import time
+import sqlite3
 from typing import Any, Callable
 
 from podplayer.utils import log, get_ip
-from podplayer.persistence import save_current_position, restore_position
+from podplayer.persistence import save_current_position, restore_position, get_db_path
 
 
 def list_podcast_files(script_dir: str, slug: str) -> list[str]:
-    """Return newest-first list of episode files for a given slug."""
+    """
+    Return newest-first list of episode files for a given slug.
+    Orders by publication_datetime from database (for episodes published on same day),
+    falling back to publication_date, then filename, then file time.
+    """
     feed_dir = os.path.join(script_dir, "podcasts", slug)
     if not os.path.isdir(feed_dir):
         return []
+
     files = [os.path.join(feed_dir, f) for f in os.listdir(feed_dir) if f.lower().endswith(".mp3")]
-    files.sort(key=os.path.getmtime, reverse=True)
+
+    # Get publication datetimes from database
+    file_datetimes: dict[str, str] = {}
+    try:
+        db_path = get_db_path(script_dir)
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            for file_path in files:
+                rel_path = os.path.relpath(file_path, script_dir)
+                # Try to get full datetime first, fall back to date
+                cursor.execute(
+                    "SELECT publication_datetime, publication_date FROM episode_metadata WHERE file_path = ?",
+                    (rel_path,),
+                )
+                result = cursor.fetchone()
+                if result:
+                    # Prefer publication_datetime (includes time), fall back to publication_date
+                    if result[0]:  # publication_datetime
+                        file_datetimes[file_path] = result[0]
+                    elif result[1]:  # publication_date
+                        file_datetimes[file_path] = result[1]
+                    else:
+                        # Extract date from filename
+                        basename = os.path.basename(file_path)
+                        if len(basename) >= 10 and basename[:10].replace("-", "").isdigit():
+                            file_datetimes[file_path] = basename[:10]
+                        else:
+                            # Use file modification time
+                            file_datetimes[file_path] = time.strftime(
+                                "%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(file_path))
+                            )
+                else:
+                    # No database entry, extract from filename or use file time
+                    basename = os.path.basename(file_path)
+                    if len(basename) >= 10 and basename[:10].replace("-", "").isdigit():
+                        file_datetimes[file_path] = basename[:10]
+                    else:
+                        file_datetimes[file_path] = time.strftime(
+                            "%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(file_path))
+                        )
+
+            conn.close()
+    except Exception as e:
+        log(f"[Podcast] Error reading publication datetimes: {e}, falling back to file time")
+        # Fallback to modification time
+        files.sort(key=os.path.getmtime, reverse=True)
+        return files
+
+    # Sort by publication datetime (newest first)
+    # ISO 8601 format sorts correctly as strings
+    files.sort(key=lambda f: file_datetimes.get(f, ""), reverse=True)
     return files
 
 

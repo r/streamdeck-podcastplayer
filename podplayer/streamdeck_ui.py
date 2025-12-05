@@ -360,12 +360,27 @@ def update_touchscreen_ui(
                             (title_x, desc_y2), desc_line2, fill=(200, 200, 200), font=font_small
                         )
         else:
-            # Not a podcast: Show title, then artist/album if available
-            title_display = truncate_text(title, font_medium, info_width - info_margin * 2)
-            draw.text((title_x, title_y), title_display, fill=(255, 255, 255), font=font_medium)
+            # Not a podcast: Show title (bold), then artist on second line
+            title_display = truncate_text(title, font_bold, info_width - info_margin * 2)
+            draw.text((title_x, title_y), title_display, fill=(255, 255, 255), font=font_bold)
 
-            # Skip artist/album for now - it requires network calls
-            # We can add this back later with proper caching
+            # Show artist if available (from cached playback info)
+            artist = playback.get("artist", "")
+            if artist:
+                artist_display = truncate_text(artist, font_medium, info_width - info_margin * 2)
+                artist_y = title_y + 24
+                draw.text(
+                    (title_x, artist_y), artist_display, fill=(200, 200, 200), font=font_medium
+                )
+
+                # Show album on third line if we have room
+                album = playback.get("album", "")
+                if album:
+                    album_display = truncate_text(album, font_small, info_width - info_margin * 2)
+                    album_y = artist_y + 22
+                    draw.text(
+                        (title_x, album_y), album_display, fill=(150, 150, 150), font=font_small
+                    )
 
     buf = io.BytesIO()
     img.save(buf, format="JPEG")

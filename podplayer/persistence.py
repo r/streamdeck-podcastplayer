@@ -41,10 +41,21 @@ def init_database(script_dir: str) -> None:
                 file_path TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 description TEXT,
+                publication_date TEXT,
+                publication_datetime TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
+        # Add publication columns if they don't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE episode_metadata ADD COLUMN publication_date TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE episode_metadata ADD COLUMN publication_datetime TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         conn.commit()
         conn.close()
         log(f"Database initialized at {db_path}")

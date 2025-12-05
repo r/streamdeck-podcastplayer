@@ -7,9 +7,17 @@ Loads configuration from config.yaml and provides easy access to settings.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Optional
 import yaml
 from typing import Dict, Any
+
+
+def slugify(text: str) -> str:
+    """Convert a name to a URL-friendly slug."""
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    return text or "podcast"
 
 
 class Config:
@@ -91,9 +99,22 @@ class Config:
                     "icon": os.path.join(self._script_dir, config["icon"]),
                 }
             elif button_type == "podcast":
+                # Generate slug from name (or use explicit slug if provided)
+                name = config.get("name", "Podcast")
+                slug = config.get("slug", slugify(name))
                 buttons[button_int] = {
                     "type": "podcast",
-                    "podcast": config["podcast"],
+                    "name": name,
+                    "slug": slug,
+                    "rss": config["rss"],
+                    "icon": os.path.join(self._script_dir, config["icon"]),
+                }
+            elif button_type == "spotify":
+                buttons[button_int] = {
+                    "type": "spotify",
+                    "name": config.get("name", "Spotify"),
+                    "uri": config["uri"],
+                    "icon": os.path.join(self._script_dir, config["icon"]),
                 }
 
         return buttons
@@ -127,22 +148,40 @@ class Config:
         podcasts = {}
         for button_num, config in self.button_config.items():
             if config["type"] == "podcast":
-                podcasts[button_num] = config["podcast"]
+                podcasts[button_num] = config["slug"]
         return podcasts
+
+    @property
+    def spotify_buttons(self) -> Dict[int, Dict[str, str]]:
+        """
+        Get all Spotify button configurations.
+
+        Returns:
+            Dict with button number as key and Spotify config (name, uri, icon) as value.
+        """
+        spotify = {}
+        for button_num, config in self.button_config.items():
+            if config["type"] == "spotify":
+                spotify[button_num] = {
+                    "name": config["name"],
+                    "uri": config["uri"],
+                    "icon": config["icon"],
+                }
+        return spotify
 
     # ===== Podcast Settings =====
 
     @property
     def episodes_to_download(self) -> int:
         """Number of latest episodes to download per podcast feed."""
-        episodes: int = self._config["podcasts"]["episodes_to_download"]
-        return episodes
+        podcasts_section = self._config.get("podcasts", {})
+        return podcasts_section.get("episodes_to_download", 15)
 
     @property
     def episodes_to_keep(self) -> int:
         """Maximum number of episodes to keep per podcast feed (older episodes are deleted)."""
-        episodes: int = self._config["podcasts"]["episodes_to_keep"]
-        return episodes
+        podcasts_section = self._config.get("podcasts", {})
+        return podcasts_section.get("episodes_to_keep", 50)
 
     @property
     def episodes_per_feed(self) -> int:
@@ -152,18 +191,20 @@ class Config:
     @property
     def podcast_feeds(self) -> Dict[str, Dict[str, Any]]:
         """
-        Dictionary of podcast feeds.
+        Dictionary of podcast feeds (derived from button configuration).
 
         Returns:
             Dict with podcast slug as key, and dict with 'name', 'rss', 'icon' as value.
         """
         feeds = {}
-        for slug, info in self._config["podcasts"]["feeds"].items():
-            feeds[slug] = {
-                "name": info["name"],
-                "rss": info["rss"],
-                "icon": os.path.join(self._script_dir, info["icon"]),
-            }
+        for button_num, config in self.button_config.items():
+            if config["type"] == "podcast":
+                slug = config["slug"]
+                feeds[slug] = {
+                    "name": config["name"],
+                    "rss": config["rss"],
+                    "icon": config["icon"],
+                }
         return feeds
 
     def get_podcast_info(self, slug: str) -> Dict[str, Any]:
@@ -174,7 +215,7 @@ class Config:
             slug: Podcast slug identifier
 
         Returns:
-            Dict with 'name', 'rss', 'icon', 'button' keys
+            Dict with 'name', 'rss', 'icon' keys
         """
         return self.podcast_feeds.get(slug, {})
 
